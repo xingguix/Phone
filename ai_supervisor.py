@@ -50,11 +50,11 @@ class AISupervisor:
         "play_music": Intent(
             name="play_music",
             description="播放音乐",
-            params={"song_name": "歌曲名"}
+            params={"song_name": "歌曲名（可选）"}
         ),
-        "stop_music": Intent(
-            name="stop_music",
-            description="停止音乐",
+        "goodbye": Intent(
+            name="goodbye",
+            description="结束通话/再见/拜拜/挂机",
             params={}
         ),
         "chat": Intent(
@@ -207,6 +207,7 @@ class IntentExecutor:
             "stop_music": self._handle_stop_music,
             "query_weather": self._handle_query_weather,
             "tell_joke": self._handle_tell_joke,
+            "goodbye": self._handle_goodbye,
             "chat": self._handle_chat,
         }
         self.current_music = None  # 当前播放的音乐路径
@@ -304,6 +305,10 @@ class IntentExecutor:
     def _handle_chat(self, params: Dict, default_response: str) -> tuple:
         """处理闲聊"""
         return default_response or "我在听，请继续说", None
+    
+    def _handle_goodbye(self, params: Dict, default_response: str) -> tuple:
+        """处理结束通话"""
+        return default_response or "好的，再见！", None
 
 
 def test_ai_supervisor():

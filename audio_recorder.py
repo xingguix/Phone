@@ -55,6 +55,9 @@ class AudioRecorder:
     
     def _audio_callback(self, in_data, frame_count, time_info, status):
         """音频采集回调"""
+        if not self.is_recording:
+            return (in_data, pyaudio.paContinue)
+        
         # 转换为 float32 数组
         audio_data = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
         
@@ -73,8 +76,17 @@ class AudioRecorder:
         if self.is_recording:
             return
         
+        # 确保之前的流完全关闭
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+            self.stream = None
+        
+        # 清空缓冲区
+        with self.buffer_lock:
+            self.buffer.clear()
+        
         self.is_recording = True
-        self.buffer.clear()
         
         self.stream = self.audio.open(
             format=pyaudio.paInt16,
