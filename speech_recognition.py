@@ -24,6 +24,39 @@ _model_fast = None
 _model_full = None
 
 
+def preload_speech_models():
+    """预加载语音模型（程序启动时调用一次）"""
+    global _model_fast, _model_full
+    
+    if _model_fast is not None and _model_full is not None:
+        return  # 已经加载过了
+    
+    if not SENSEVOICE_AVAILABLE:
+        raise RuntimeError("FunASR 未安装")
+    
+    print(f"[SenseVoice] 正在加载模型...")
+    
+    model_dir = "iic/SenseVoiceSmall"
+    
+    # 关键词检测用：轻量快速，无VAD
+    _model_fast = AutoModel(
+        model=model_dir,
+        device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
+        disable_update=True,  # 禁用更新检查，加速加载
+    )
+    
+    # 完整识别用：带VAD，准确分段
+    _model_full = AutoModel(
+        model=model_dir,
+        vad_model="fsmn-vad",
+        vad_kwargs={"max_single_segment_time": 30000},
+        device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
+        disable_update=True,  # 禁用更新检查，加速加载
+    )
+    
+    print(f"[SenseVoice] 模型加载完成！")
+
+
 class SpeechRecognizer:
     """语音识别器 - 使用 SenseVoice（全局单例模型）"""
     
@@ -33,30 +66,9 @@ class SpeechRecognizer:
         
         global _model_fast, _model_full
         
+        # 确保模型已加载
         if _model_fast is None or _model_full is None:
-            print(f"[SenseVoice] 正在加载模型...")
-            
-            model_dir = "iic/SenseVoiceSmall"
-            
-            # 关键词检测用：轻量快速，无VAD
-            _model_fast = AutoModel(
-                model=model_dir,
-                device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
-                disable_update=True,  # 禁用更新检查，加速加载
-            )
-            
-            # 完整识别用：带VAD，准确分段
-            _model_full = AutoModel(
-                model=model_dir,
-                vad_model="fsmn-vad",
-                vad_kwargs={"max_single_segment_time": 30000},
-                device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
-                disable_update=True,  # 禁用更新检查，加速加载
-            )
-            
-            print(f"[SenseVoice] 模型加载完成！")
-        else:
-            print(f"[SenseVoice] 使用已缓存的模型")
+            preload_speech_models()
         
         self.model_fast = _model_fast
         self.model_full = _model_full

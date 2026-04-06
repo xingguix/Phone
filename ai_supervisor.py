@@ -2,7 +2,8 @@
 
 import json
 import re
-from typing import Dict, Any, Optional
+import os
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 # 读取 API key（不 print，不暴露）
@@ -10,16 +11,35 @@ with open("key.txt", "r", encoding="utf-8") as f:
     _API_KEY = f.read().strip()
 
 
+def get_music_list() -> List[str]:
+    """获取 music 文件夹中的音乐列表"""
+    music_dir = "music"
+    if not os.path.exists(music_dir):
+        return []
+    
+    # 支持的音频格式
+    extensions = ('.mp3', '.wav', '.ogg', '.flac', '.m4a')
+    
+    files = []
+    for f in os.listdir(music_dir):
+        if f.lower().endswith(extensions):
+            # 去掉扩展名作为歌曲名
+            name = os.path.splitext(f)[0]
+            files.append(name)
+    
+    return sorted(files)
+
+
 @dataclass
 class Intent:
     """意图定义"""
     name: str           # 意图标识名
     description: str    # 意图描述
-    params: Dict[str, str] = {}  # 参数说明 {参数名: 参数描述}
+    params: Optional[Dict[str, str]] = None  # 参数说明 {参数名: 参数描述}
     
     def __post_init__(self):
         if self.params is None:
-            self.params = {}
+            object.__setattr__(self, 'params', {})
 
 
 class AISupervisor:
@@ -76,15 +96,28 @@ class AISupervisor:
                 lines.append(f"- {intent.name}: 无 params")
         return "\n".join(lines)
     
+    def _build_music_doc(self) -> str:
+        """构建音乐列表说明"""
+        music_list = get_music_list()
+        if not music_list:
+            return "- 当前没有可用的音乐"
+        
+        lines = [f"- {name}" for name in music_list]
+        return "\n".join(lines)
+    
     def _build_prompt(self, user_input: str) -> str:
         """构建提示词（自动根据 INTENTS 生成）"""
         intent_list = self._build_intent_list()
         params_doc = self._build_params_doc()
+        music_doc = self._build_music_doc()
         
         return f"""你是一个AI电话助手，负责理解用户的语音指令并输出固定格式的意图。
 
 ## 支持的意图类型
 {intent_list}
+
+## 可用的音乐列表（play_music 的 song_name 必须从以下选择）
+{music_doc}
 
 ## 输出格式（必须严格遵循）
 你必须且只能输出以下JSON格式，不要有任何其他内容：
@@ -176,8 +209,10 @@ class IntentExecutor:
             "tell_joke": self._handle_tell_joke,
             "chat": self._handle_chat,
         }
+        self.current_music = None  # 当前播放的音乐路径
+        self.music_list = get_music_list()  # 缓存音乐列表
     
-    def execute(self, intent_data: Dict[str, Any]) -> str:
+    def execute(self, intent_data: Dict[str, Any]) -> tuple:
         """
         执行意图
         
@@ -185,7 +220,7 @@ class IntentExecutor:
             intent_data: AI识别的意图数据
         
         Returns:
-            回复用户的文字（用于TTS）
+            (回复文字, 音乐路径或None)
         """
         intent = intent_data.get("intent", "chat")
         params = intent_data.get("params", {})
@@ -194,38 +229,81 @@ class IntentExecutor:
         handler = self.handlers.get(intent, self._handle_chat)
         return handler(params, response)
     
-    def _handle_play_music(self, params: Dict, default_response: str) -> str:
+    def _find_music_file(self, song_name: str) -> Optional[str]:
+        """根据歌曲名找到对应的文件"""
+        music_dir = "music"
+        extensions = ('.mp3', '.wav', '.ogg', '.flac', '.m4a')
+        
+        # 精确匹配
+        for ext in extensions:
+            path = os.path.join(music_dir, f"{song_name}{ext}")
+            if os.path.exists(path):
+                return path
+        
+        # 模糊匹配（包含关系）
+        for f in os.listdir(music_dir):
+            name = os.path.splitext(f)[0]
+            if song_name.lower() in name.lower() or name.lower() in song_name.lower():
+                return os.path.join(music_dir, f)
+        
+        return None
+    
+    def _handle_play_music(self, params: Dict, default_response: str) -> tuple:
         """处理播放音乐"""
         song_name = params.get("song_name", "")
-        # TODO: 实际播放音乐
+        
         if song_name:
-            return f"好的，为您播放《{song_name}》"
-        return default_response or "好的，为您播放音乐"
+            # 查找音乐文件
+            music_path = self._find_music_file(song_name)
+            if music_path:
+                self.current_music = music_path
+                response = default_response or f"好的，为您播放《{song_name}》"
+                return response, music_path
+            else:
+                # 找不到，播放默认音乐
+                default_path = self._get_default_music()
+                self.current_music = default_path
+                return f"抱歉，没有找到《{song_name}》，为您播放默认音乐", default_path
+        else:
+            # 没有指定歌曲，播放默认
+            default_path = self._get_default_music()
+            self.current_music = default_path
+            return default_response or "好的，为您播放音乐", default_path
     
-    def _handle_stop_music(self, params: Dict, default_response: str) -> str:
+    def _get_default_music(self) -> Optional[str]:
+        """获取默认音乐"""
+        music_dir = "music"
+        if not os.path.exists(music_dir):
+            return None
+        
+        for f in os.listdir(music_dir):
+            if f.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a')):
+                return os.path.join(music_dir, f)
+        return None
+    
+    def _handle_stop_music(self, params: Dict, default_response: str) -> tuple:
         """处理停止音乐"""
-        # TODO: 实际停止音乐
-        return default_response or "音乐已停止"
+        self.current_music = None
+        return default_response or "音乐已停止", None
     
-    def _handle_query_weather(self, params: Dict, default_response: str) -> str:
+    def _handle_query_weather(self, params: Dict, default_response: str) -> tuple:
         """处理查询天气"""
         city = params.get("city", "本地")
         # TODO: 实际查询天气API
-        return default_response or f"{city}今天天气晴朗，温度25度"
+        return default_response or f"{city}今天天气晴朗，温度25度", None
     
-    def _handle_tell_joke(self, params: Dict, default_response: str) -> str:
+    def _handle_tell_joke(self, params: Dict, default_response: str) -> tuple:
         """处理讲笑话"""
-        # TODO: 从笑话库随机获取
         jokes = [
             "为什么程序员总是分不清圣诞节和万圣节？因为 31 OCT = 25 DEC",
             "一个程序员走进酒吧，举起双手说：我要一杯啤酒。酒保问：一杯还是两杯？程序员说：一杯。然后举起两根手指。",
         ]
         import random
-        return random.choice(jokes)
+        return random.choice(jokes), None
     
-    def _handle_chat(self, params: Dict, default_response: str) -> str:
+    def _handle_chat(self, params: Dict, default_response: str) -> tuple:
         """处理闲聊"""
-        return default_response or "我在听，请继续说"
+        return default_response or "我在听，请继续说", None
 
 
 def test_ai_supervisor():
