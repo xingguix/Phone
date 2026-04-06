@@ -19,33 +19,47 @@ except ImportError:
     raise ImportError("FunASR 未安装，运行: pip install funasr modelscope")
 
 
+# 全局模型缓存（避免重复下载和加载）
+_model_fast = None
+_model_full = None
+
+
 class SpeechRecognizer:
-    """语音识别器 - 使用 SenseVoice"""
+    """语音识别器 - 使用 SenseVoice（全局单例模型）"""
     
     def __init__(self):
         if not SENSEVOICE_AVAILABLE:
             raise RuntimeError("FunASR 未安装")
         
-        print(f"[SenseVoice] 正在加载模型...")
+        global _model_fast, _model_full
         
-        # 模型会下载到本地缓存
-        model_dir = "iic/SenseVoiceSmall"
+        if _model_fast is None or _model_full is None:
+            print(f"[SenseVoice] 正在加载模型...")
+            
+            model_dir = "iic/SenseVoiceSmall"
+            
+            # 关键词检测用：轻量快速，无VAD
+            _model_fast = AutoModel(
+                model=model_dir,
+                device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
+                disable_update=True,  # 禁用更新检查，加速加载
+            )
+            
+            # 完整识别用：带VAD，准确分段
+            _model_full = AutoModel(
+                model=model_dir,
+                vad_model="fsmn-vad",
+                vad_kwargs={"max_single_segment_time": 30000},
+                device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
+                disable_update=True,  # 禁用更新检查，加速加载
+            )
+            
+            print(f"[SenseVoice] 模型加载完成！")
+        else:
+            print(f"[SenseVoice] 使用已缓存的模型")
         
-        # 关键词检测用：轻量快速，无VAD
-        self.model_fast = AutoModel(
-            model=model_dir,
-            device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
-        )
-        
-        # 完整识别用：带VAD，准确分段
-        self.model_full = AutoModel(
-            model=model_dir,
-            vad_model="fsmn-vad",
-            vad_kwargs={"max_single_segment_time": 30000},
-            device="cuda" if WHISPER_DEVICE == "cuda" else "cpu",
-        )
-        
-        print(f"[SenseVoice] 模型加载完成！")
+        self.model_fast = _model_fast
+        self.model_full = _model_full
     
     def _clean_text(self, text: str) -> str:
         """清洗 SenseVoice 输出的标签"""
