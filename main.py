@@ -9,25 +9,30 @@ from typing import Optional, Callable
 try:
     from audio_recorder import AudioRecorder
     from speech_recognition import SpeechRecognizer, RecognitionWorker
+    from ai_supervisor import AISupervisor, IntentExecutor
     SPEECH_ENABLED = True
-except ImportError:
+    AI_ENABLED = True
+except ImportError as e:
     SPEECH_ENABLED = False
-    raise ImportError("语音识别模块未安装，运行: pip install -r requirements.txt")
+    AI_ENABLED = False
+    raise ImportError(f"模块未安装: {e}")
 
 
 
 class BotState(Enum):
     IDLE = 0
-    PLAYING = 1
+    WORKING = 1
     LISTENING = 2
 
 
 mixer.init()
 state: BotState = BotState.IDLE
 
-# 语音识别组件（延迟初始化）
+# 组件（延迟初始化）
 recognizer: Optional[SpeechRecognizer] = None
 recorder: Optional[AudioRecorder] = None
+ai_supervisor: Optional[AISupervisor] = None
+intent_executor: Optional[IntentExecutor] = None
 
 
 def init_speech():
@@ -39,7 +44,19 @@ def init_speech():
     print("[初始化] 语音识别...")
     recognizer = SpeechRecognizer()
     recorder = AudioRecorder()
-    print("[初始化] 完成！")
+    print("[初始化] 语音识别完成！")
+
+
+def init_ai():
+    """初始化 AI 主管"""
+    global ai_supervisor, intent_executor
+    if not AI_ENABLED or ai_supervisor is not None:
+        return
+    
+    print("[初始化] AI 主管...")
+    ai_supervisor = AISupervisor()
+    intent_executor = IntentExecutor()
+    print("[初始化] AI 主管完成！")
 
 
 def play_music(path: str):
@@ -100,14 +117,13 @@ def listen_for_speech(timeout: int = 30, should_stop_fn: Optional[Callable[[], b
 def main():
     global state
     print("[主程序] 程序开始运行...")
-    
+    init_ai()
     def check_should_stop() -> bool:
         """检查是否应该停止语音识别（用户挂断了）"""
         return get_call_state() == PhoneState.IDLE
     
     while True:
         phone_state = get_call_state()
-        
         match state:
             case BotState.IDLE:
                 if phone_state == PhoneState.RINGING:
@@ -115,13 +131,32 @@ def main():
                     pick_up()
                     sleep(0.3)
                     
+                    # 1. 语音识别 - 获取用户输入
                     user_input = listen_for_speech(timeout=30, should_stop_fn=check_should_stop)
                     print(f"[主程序] 用户说: {user_input}")
                     
-                    play_music("Nicky Youre - Mile Away.mp3")
-                    state = BotState.PLAYING
+                    # 如果用户已经挂断，跳过AI处理
+                    if get_call_state() == PhoneState.IDLE:
+                        continue
+                    
+                    # 2. AI 主管分析意图
+                    if ai_supervisor and intent_executor:
+                        intent_data = ai_supervisor.understand(user_input)
+                        print(f"[AI主管] 意图: {intent_data['intent']}, 参数: {intent_data['params']}")
+                        
+                        # 3. 执行意图并获取回复
+                        ai_response = intent_executor.execute(intent_data)
+                        print(f"[AI主管] 回复: {ai_response}")
+                        
+                        # TODO: TTS 播放 ai_response
+                        # 暂时用音乐代替
+                        play_music("Nicky Youre - Mile Away.mp3")
+                    else:
+                        # AI 不可用，直接播放音乐
+                        play_music("Nicky Youre - Mile Away.mp3")
+                    state = BotState.WORKING
             
-            case BotState.PLAYING:
+            case BotState.WORKING:
                 # 检测用户是否挂断
                 if phone_state == PhoneState.IDLE:
                     hang_up()
