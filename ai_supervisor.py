@@ -6,7 +6,6 @@ import os
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
-# 读取 API key（不 print，不暴露）
 with open("key.txt", "r", encoding="utf-8") as f:
     _API_KEY = f.read().strip()
 
@@ -204,9 +203,7 @@ class IntentExecutor:
     def __init__(self):
         self.handlers = {
             "play_music": self._handle_play_music,
-            "stop_music": self._handle_stop_music,
             "query_weather": self._handle_query_weather,
-            "tell_joke": self._handle_tell_joke,
             "goodbye": self._handle_goodbye,
             "chat": self._handle_chat,
         }

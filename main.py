@@ -9,7 +9,7 @@ from typing import Optional, Callable
 # 模块导入
 try:
     from audio_recorder import AudioRecorder
-    from speech_recognition import SpeechRecognizer, RecognitionWorker, preload_speech_models
+    import speech_recognition  # 直接用模块里的函数
     from ai_supervisor import AISupervisor, IntentExecutor
     from dtmf_detector import DTMFDetector
     from tts_engine import init_tts, speak
@@ -26,7 +26,6 @@ except ImportError as e:
 
 
 # 组件（延迟初始化）
-recognizer: Optional[SpeechRecognizer] = None
 recorder: Optional[AudioRecorder] = None
 ai_supervisor: Optional[AISupervisor] = None
 intent_executor: Optional[IntentExecutor] = None
@@ -38,12 +37,11 @@ should_stop_music = False
 
 def init_speech():
     """初始化语音识别组件"""
-    global recognizer, recorder
-    if not SPEECH_ENABLED or recognizer is not None:
+    global recorder
+    if not SPEECH_ENABLED or recorder is not None:
         return
     
     print("[初始化] 语音识别...")
-    recognizer = SpeechRecognizer()
     recorder = AudioRecorder()
     print("[初始化] 语音识别完成！")
 
@@ -82,34 +80,20 @@ def play_beep():
 
 
 def listen_for_speech(timeout: int = 100, should_stop_fn: Optional[Callable[[], bool]] = None) -> str:
-    """监听用户语音"""
+    """监听用户语音 - 直接使用用户写的 keep_transcribing 逻辑"""
     if not SPEECH_ENABLED:
         print("[语音识别] 未启用")
         return ""
     
     init_speech()
-    if recognizer is None or recorder is None:
-        print("[警告] 语音识别组件未初始化")
+    if recorder is None:
+        print("[警告] 录音组件未初始化")
         return ""
     
-    worker = RecognitionWorker(recognizer)
-    
-    def on_keyword(text):
-        print(f"[监听] 关键词触发，停止监听")
-    
-    worker.on_keyword = on_keyword
-    
-    print(f"[监听] 请说话，说'完毕'结束...")
-    recorder.start()
-    worker.start(recorder, timeout=timeout, should_stop_fn=should_stop_fn)
-    
-    while worker.is_running:
-        sleep(0.1)
-    
-    recorder.stop()
+    # 直接调用用户写的逻辑（传递挂断检测函数）
+    result = speech_recognition.listen_for_speech(recorder, timeout=timeout, should_stop_fn=should_stop_fn)
     play_beep()
     
-    result = " ".join(worker.all_texts)
     print(f"[监听] 识别结果: {result}")
     return result
 
@@ -269,8 +253,8 @@ def main():
     print("[主程序] 程序开始运行...")
     print("[主程序] 支持多轮对话，说'再见'结束通话")
     
+    
     # 初始化
-    preload_speech_models()
     init_ai()
     init_dtmf()
     if TTS_ENABLED:

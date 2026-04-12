@@ -1,10 +1,10 @@
 openai-whisper
-pyaudio
+sounddevice
+wavio
 numpy
 torch
 funasr
 modelscope
 openai
 edge-tts
-asyncio
-
+pygame
